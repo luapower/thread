@@ -65,7 +65,7 @@ Errors are propagated to the calling thread.
 
 ## Queues
 
-### `thread.queue([maxlength]) -> q
+### `thread.queue([maxlength]) -> q`
 
 Create a queue that can be safely shared and used between threads.
 Elements can be popped from both ends, so it can act as both a LIFO
