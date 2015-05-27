@@ -21,7 +21,7 @@ q:shift([timeout]) -> true, val, len    remove bottom value (*)
 q:pop([timeout]) -> true, val, len      remove top value (*)
 q:free()                                free queue and its resources
 __events__
-thread.event() -> e                     create an event
+thread.event([initially_set]) -> e      create an event
 e:set()                                 set the flag
 e:clear()                               reset the flag
 e:isset() -> true | false               check if the flag is set
@@ -73,7 +73,7 @@ or a FIFO queue, as needed.
 
 ## Events
 
-### `thread.event() -> e`
+### `thread.event([initially_set]) -> e`
 
 Events are a simple way to make multiple threads block on a flag.
 Setting the flag unblocks any threads that are blocking on `e:wait()`.
