@@ -69,7 +69,11 @@ Errors are propagated to the calling thread.
 
 Create a queue that can be safely shared and used between threads.
 Elements can be popped from both ends, so it can act as both a LIFO
-or a FIFO queue, as needed.
+or a FIFO queue, as needed. When the queue is empty, attempts to
+pop from it blocks until new elements are pushed again. When a
+bounded queue (i.e. when a maxlength is passed) is full, attempts
+to push to it blocks until elements are consumed. The order in which
+multiple blocked threads wake up is arbitrary.
 
 ## Events
 
