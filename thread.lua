@@ -46,6 +46,7 @@ function thread.shared_pointer(in_ctype, out_ctype)
 end
 
 thread.shared_pointer'lua_State*'
+thread.shared_pointer('pthread_t', 'pthread_t*')
 thread.shared_pointer('pthread_mutex_t', 'pthread_mutex_t*')
 thread.shared_pointer('pthread_rwlock_t', 'pthread_rwlock_t*')
 thread.shared_pointer('pthread_cond_t', 'pthread_cond_t*')
@@ -139,11 +140,7 @@ function event:wait(timeout)
 			self.mutex:unlock()
 			return true
 		end
-		if timeout then
-			cont = self.cond:timedwait(self.mutex, timeout)
-		else
-			self.cond:wait(self.mutex)
-		end
+		cont = self.cond:wait(self.mutex, timeout)
 	end
 	self.mutex:unlock()
 	return false
@@ -154,8 +151,6 @@ ffi.metatype('thread_event_t', {__index = event})
 thread.shared_pointer('thread_event_t', 'thread_event_t*')
 
 --queues ---------------------------------------------------------------------
-
---TODO: turn this trivial impl. into a circular buffer to support large queues.
 
 local queue = {}
 queue.__index = queue
@@ -180,6 +175,10 @@ function queue:free()
 	self.mutex:free();          self.mutex = nil
 end
 
+function queue:maxlength()
+	return self.maxlen
+end
+
 local function queue_length(self)
 	return self.state:gettop()
 end
@@ -192,99 +191,71 @@ local function queue_isempty(self)
 	return queue_length(self) == 0
 end
 
---method wrapper that locks the mutex, calls the method and unlocks
---the mutex before returning, even when the method raises an error.
-local function pass(self, ok, ...)
+function queue:length()
+	self.mutex:lock()
+	local ret = queue_length(self)
 	self.mutex:unlock()
-	if ok then
-		return ...
-	else
-		error(..., 3)
-	end
-end
-local function synched(func)
-	return function(self, ...)
-		self.mutex:lock()
-		return pass(self, xpcall(func, debug.traceback, self, ...))
-	end
+	return ret
 end
 
-queue.length  = synched(queue_length)
-queue.isfull  = synched(queue_isfull)
-queue.isempty = synched(queue_isempty)
-
-function queue:maxlength()
-	return self.maxlen
+function queue:isfull()
+	self.mutex:lock()
+	local ret = queue_isfull(self)
+	self.mutex:unlock()
+	return ret
 end
 
---normalize index and check if within offsetted range
-local function queue_checkindex(self, i, ofs0, ofs1)
-	local i1 = self.state:gettop()
-	--normalize the index: negative indices are relative to the tail
-	if i <= 0 then
-		i = i1 + i + 1
-	end
-	--offset the index range at both ends
-	local i0 =  1 + ofs0
-	local i1 = i1 + ofs1
-	--check index in range
-	if i < i0 or i > i1 then
-		error('index out of range', 3)
-	end
-	return i
+function queue:isempty()
+	self.mutex:lock()
+	local ret = queue_isempty(self)
+	self.mutex:unlock()
+	return ret
 end
 
-queue.insert = synched(function(self, v, index, timeout)
-	index = queue_checkindex(self, index or 0, 0, 1)
+function queue:push(val, timeout)
+	self.mutex:lock()
 	while queue_isfull(self) do
 		if not self.cond_not_full:wait(self.mutex, timeout) then
+			self.mutex:unlock()
 			return false, 'timeout'
 		end
 	end
 	local was_empty = queue_isempty(self)
-	self.state:push(v)
-	self.state:insert(index)
+	self.state:push(val)
 	local len = queue_length(self)
 	if was_empty then
 		self.cond_not_empty:broadcast()
 	end
-	return len
-end)
+	self.mutex:unlock()
+	return true, len
+end
 
-queue.remove = synched(function(self, index, timeout)
-	index = queue_checkindex(self, index or -1, 0, 0)
+local function queue_remove(self, index, timeout)
+	self.mutex:lock()
 	while queue_isempty(self) do
 		if not self.cond_not_empty:wait(self.mutex, timeout) then
+			self.mutex:unlock()
 			return false, 'timeout'
 		end
 	end
 	local was_full = queue_isfull(self)
-	local v = self.state:get(index)
-	--print('>>>>', index > 0, self.state:gettop() > 0)
+	local val = self.state:get(index)
 	self.state:remove(index)
 	local len = queue_length(self)
 	if was_full then
 		self.cond_not_full:broadcast()
 	end
-	return v, len
-end)
-
-queue.replace = synched(function(self, index)
-	index = queue_checkindex(self, index, 0, 0, 0)
-	self.state:push(v)
-	self.state:replace(index)
-end)
-
-function queue:push(v, timeout)
-	return self:insert(v, nil, timeout)
+	self.mutex:unlock()
+	return true, val, len
 end
 
 function queue:pop(timeout)
-	return self:remove(nil, timeout)
+	return queue_remove(self, -1, timeout)
 end
 
+--NOTE: this is O(N) where N = self:length().
 function queue:shift(timeout)
-	return self:remove(1, timeout)
+	return queue_remove(self, 1, timeout)
 end
 
 --queues / shareable interface
@@ -323,7 +294,7 @@ thread.shared_object('queue', queue)
 function thread.new(func, ...)
 	local state = luastate.open()
 	state:openlibs()
-	state:push(function(args)
+	state:push(function(func, args)
 
 		local pthread = require'pthread'
 		local luastate = require'luastate'
@@ -338,29 +309,31 @@ function thread.new(func, ...)
 			rawset(_G, '__ret', retvals) --is this the only way to get them out?
 		end
 	   local function worker()
-	   	local t = thread._decode_args(args.func_args)
-	   	pass(xpcall(args.func, debug.traceback, glue.unpack(t)))
+	   	local t = thread._decode_args(args)
+	   	pass(xpcall(func, debug.traceback, glue.unpack(t)))
 	   end
 
 		--worker_cb is anchored by luajit along with the function it frames.
 	   local worker_cb = cast('void *(*)(void *)', worker)
 	   return addr(worker_cb)
 	end)
-	local args = {
-		func = func,
-		func_args = thread._encode_args(glue.pack(...)),
-	}
-	local worker_cb_ptr = ptr(state:call(args))
+	local args = glue.pack(...)
+	local encoded_args = thread._encode_args(args)
+	local worker_cb_ptr = ptr(state:call(func, encoded_args))
 	local pthread = pthread.new(worker_cb_ptr)
 
-	return glue.inherit({
+	return setmetatable({
 			pthread = pthread,
 			state = state,
+			args = args, --keep args to avoid shareables from being collected
 		}, thread)
 end
 
+thread.__index = thread
+
 function thread:join()
 	self.pthread:join()
+	self.args = nil --release args
 	--get the return values of worker function
 	self.state:getglobal'__ret'
 	local retvals = self.state:get()
@@ -372,35 +345,28 @@ function thread:join()
 	return glue.unpack(thread._decode_args(retvals))
 end
 
-return thread
+--threads / shareable interface
 
-------------------------------------------------------------------------------
-
---[[
-thread.new(worker, 1, 2)
-
-shared = {}
-
-function worker(shared)
-	--
+function thread:identify()
+	return getmetatable(self) == thread
 end
 
-t1 = thread.new(worker, 1, 2)
-t2 = thread.new(worker, 'a', {x = 1})
-local r1, r2 = t1:join()
-local r1, r2 = t2:join()
+function thread:encode()
+	return {
+		pthread_addr = glue.addr(self.pthread),
+		state_addr   = glue.addr(self.state),
+	}
+end
 
-local shared = thread.shared()
+function thread.decode(t)
+	return setmetatable({
+		pthread = glue.ptr('pthread_t*', t.thread_addr),
+		state   = glue.ptr('lua_State*', t.state_addr),
+	}, thread)
+end
 
-t1 = thread.new(worker, shared)
+thread.shared_object('thread', thread)
 
-mutex:lock()
-state:push()
-state:setglobal()
-mutex:unlock()
 
-mutex:lock()
-state:getglobal()
-state:get()
-mutex:unlock()
-]]
+return thread
+

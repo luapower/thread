@@ -51,7 +51,7 @@ local function test_pthread_creation()
 	end
 	local t1 = time.clock()
 	state:close()
-	print(string.format('time to create %d pthreads: %.2fs', n, t1 - t0))
+	print(string.format('time to create %d pthreads: %dms', n, (t1 - t0) * 1000))
 end
 
 local function test_luastate_creation()
@@ -66,7 +66,7 @@ local function test_luastate_creation()
 		state:close()
 	end
 	local t1 = time.clock()
-	print(string.format('time to create %d states: %.2fs', n, t1 - t0))
+	print(string.format('time to create %d states: %dms', n, (t1 - t0) * 1000))
 end
 
 local function test_thread_creation()
@@ -76,98 +76,56 @@ local function test_thread_creation()
 		thread.new(function() end):join()
 	end
 	local t1 = time.clock()
-	print(string.format('time to create %d threads: %.2fs', n, t1 - t0))
+	print(string.format('time to create %d threads: %dms', n, (t1 - t0) * 1000))
 end
 
-local function test_queue()
+--pn/pm/cn/cm: producer/consumer threads/messages
+local function test_queue(qsize, pn, pm, cn, cm, msg)
 
-	local q = thread.queue(1)
+	msg = msg or {i = 321, j = 123, s = 'hello', bool = true}
 
-	local t1 = thread.new(function(q)
-		for i = 1, 20 do
-			io.stdout:write(table.concat({'push', q:push('hello'..i)}, '\t')..'\n')
-		end
-	end, q)
+	local q = thread.queue(qsize)
 
-	local t2 = thread.new(function(q)
-		for i = 1, 20 do
-			io.stdout:write(table.concat({'pop', q:pop()}, '\t')..'\n')
-		end
-	end, q)
-
-	t2:join()
-	t1:join()
-
-	print'--------------------------------'
-	assert(q:length() == 0)
-	--ffi.gc(q.state, nil)
-	--ffi.gc(q.mutex, nil)
-	--ffi.gc(q.cond_not_full, nil)
-	--ffi.gc(q.cond_not_empty, nil)
-	--q:free()
-end
-
---test_pthread_creation()
---test_luastate_creation()
---test_thread_creation()
-test_queue()
-
---[[
-
-local function test_yield()
-	local mutex = pthread.mutex()
-	local cond = pthread.cond()
-	local event = thread.event()
-	local state = luastate.state()
-
-	local t = thread.new(function(event, state, mutex, cond)
-		local coro = coroutine.create(
-			function()
-				local time = require'time'
-				print(coroutine.yield('a', 'b', 1, 2, 3))
-				return 4, 5, 6
-			end)
-		while true do
-			local function pass(ok, ...)
-				if not ok then error(..., 2) end
-				mutex:lock()
-				state:push(glue.pack(...))
-				state:setglobal'args'
-				cond:broadcast()
-				mutex:unlock()
-				if coroutine.status(coro) == 'dead' then
-					return ...
-				end
+	local pt = {}
+	for i = 1, pn do
+		pt[i] = thread.new(function(q, n, msg)
+			for i = 1, n do
+				local z = q:push(msg)
+				--io.stdout:write(table.concat({'push', z}, '\t')..'\n')
 			end
-			pass(coroutine.resume(coro))
-		end
-	end, event, state, mutex, cond)
-
-	local function resume(...)
-		mutex:lock()
-		cond:broadcast()
-		mutex:unlock()
+		end, q, pm, msg)
 	end
 
-	print(resume())
-	print(resume())
+	local ct = {}
+	for i = 1, cn do
+		ct[i] = thread.new(function(q, n, msg)
+			for i = 1, n do
+				local _, v, z = q:shift()
+				--io.stdout:write(table.concat({'pop', v, z}, '\t')..'\n')
+			end
+		end, q, cm, msg)
+	end
+
+	local t0 = time.clock()
+	for i = 1, #pt do pt[i]:join() end
+	for i = 1, #ct do ct[i]:join() end
+	local t1 = time.clock()
+
+	assert(q:length() == 0)
+	q:free()
+
+	print(string.format('queue test: %d*%d -> %d*%d, queue size: %d, time: %dms',
+		pn, pm, cn, cm, qsize, (t1 - t0) * 1000))
 end
 
+--test_events()
+test_pthread_creation()
+test_luastate_creation()
+test_thread_creation()
+test_queue(1000, 10,  1000, 10,  1000)
+test_queue(1000,  1, 10000,  1, 10000)
+test_queue(1000,  1, 10000, 10,  1000)
+test_queue(1000, 10,  1000,  1, 10000)
+test_queue(1,     1, 10000, 10,  1000)
+test_queue(1,    10,  1000,  1, 10000)
 
-local th1 = ps.thread(function(api)
-	local state = api:lock()
-	print('th1 have state', state)
-	api:unlock()
-end)
-
-local th2 = ps.thread(function(api)
-	local state = api:lock()
-	print('th2 have state', state)
-	api:unlock()
-end)
-
-th1:join()
-th2:join()
-
-
-]]
