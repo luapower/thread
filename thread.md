@@ -30,12 +30,12 @@ e:wait([timeout]) -> true | false       wait until the flag is set
 e:free()                                free event
 --------------------------------------- --------------------------------------
 
-> (*) the `timeout` arg is an os.time() or [time].time() timestamp,
+(*) the `timeout` arg is an os.time() or [time].time() timestamp,
 not a time period; when a timeout is passed, the function can return
 `false, 'timeout'` if the specified timeout expires before the underlying
 mutex is locked.
 
-> (**) default index is 1 (bottom element); negative indices count from top,
+(**) default index is 1 (bottom element); negative indices count from top,
 -1 being the top element; returns false if the index is out of range.
 
 ## Threads
@@ -75,11 +75,11 @@ Create a queue that can be safely shared and used between threads.
 Elements can be popped from both ends, so it can act as both a LIFO
 or a FIFO queue, as needed. When the queue is empty, attempts to
 pop from it blocks until new elements are pushed again. When a
-bounded queue (i.e. when a maxlength is passed) is full, attempts
-to push to it blocks until elements are consumed. The order in which
+bounded queue (i.e. with maxlength) is full, attempts to push
+to it blocks until elements are consumed. The order in which
 multiple blocked threads wake up is arbitrary.
 
-> The queue can be locked and operated upon manually too. Use `q.mutex` to
+The queue can be locked and operated upon manually too. Use `q.mutex` to
 lock/unlock it, `q.state` to access the elements (they occupy the Lua stack
 starting at index 1), and `q.cond_not_empty`, `q.cond_not_full` to
 wait/broadcast on the not-empty and not-full events.
