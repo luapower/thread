@@ -19,7 +19,7 @@ q:maxsize() -> n                        queue max. size
 q:push(val[, timeout]) -> true, len     add value to the top (*)
 q:shift([timeout]) -> true, val, len    remove bottom value (*)
 q:pop([timeout]) -> true, val, len      remove top value (*)
-q:peek([index]) -> true, val | false    peek into the list without removing (**)
+q:peek(\[index\]) -> true, val | false  peek into the list without removing (**)
 q:free()                                free queue and its resources
 __events__
 thread.event([initially_set]) -> e      create an event
