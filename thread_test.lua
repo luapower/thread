@@ -112,6 +112,8 @@ local function test_queue(qsize, pn, pm, cn, cm, msg)
 	local t1 = time.clock()
 
 	assert(q:length() == 0)
+	assert(not q:peek())
+	assert(not q:peek(-1))
 	q:free()
 
 	print(string.format('queue test: %d*%d -> %d*%d, queue size: %d, time: %dms',

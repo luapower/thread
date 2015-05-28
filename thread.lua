@@ -258,6 +258,22 @@ function queue:shift(timeout)
 	return queue_remove(self, 1, timeout)
 end
 
+function queue:peek(i)
+	i = i or 1
+	self.mutex:lock()
+	local len = queue_length(self)
+	if i <= 0 then
+		i = len + i + 1  -- index -1 is top
+	end
+	if i < 1 or i > len then
+		self.mutex:unlock()
+		return false
+	end
+	local val = self.state:get(i)
+	self.mutex:unlock()
+	return true, val
+end
+
 --queues / shareable interface
 
 function queue:identify()

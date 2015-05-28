@@ -19,6 +19,7 @@ q:maxsize() -> n                        queue max. size
 q:push(val[, timeout]) -> true, len     add value to the top (*)
 q:shift([timeout]) -> true, val, len    remove bottom value (*)
 q:pop([timeout]) -> true, val, len      remove top value (*)
+q:peek([index]) -> true, val | false    peek into the list without removing (**)
 q:free()                                free queue and its resources
 __events__
 thread.event([initially_set]) -> e      create an event
@@ -33,6 +34,9 @@ e:free()                                free event
 not a time period; when a timeout is passed, the function can return
 `false, 'timeout'` if the specified timeout expires before the underlying
 mutex is locked.
+
+> (**) default index is 1 (bottom element); negative indices count from top,
+-1 being the top element; returns false if the index is out of range.
 
 ## Threads
 
@@ -74,6 +78,11 @@ pop from it blocks until new elements are pushed again. When a
 bounded queue (i.e. when a maxlength is passed) is full, attempts
 to push to it blocks until elements are consumed. The order in which
 multiple blocked threads wake up is arbitrary.
+
+> The queue can be locked and operated upon manually too. Use `q.mutex` to
+lock/unlock it, `q.state` to access the elements (they occupy the Lua stack
+starting at index 1), and `q.cond_not_empty`, `q.cond_not_full` to
+wait/broadcast on the not-empty and not-full events.
 
 ## Events
 
