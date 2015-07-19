@@ -214,8 +214,11 @@ end
 
 function queue:push(val, timeout)
 	self.mutex:lock()
+	print'push: locked'
 	while queue_isfull(self) do
+		print'push: full'
 		if not self.cond_not_full:wait(self.mutex, timeout) then
+			print'push: timeout'
 			self.mutex:unlock()
 			return false, 'timeout'
 		end
@@ -227,25 +230,32 @@ function queue:push(val, timeout)
 		self.cond_not_empty:broadcast()
 	end
 	self.mutex:unlock()
+	print'push: unlocked'
 	return true, len
 end
 
 local function queue_remove(self, index, timeout)
 	self.mutex:lock()
+	print'remove: locked'
 	while queue_isempty(self) do
+		print'remove: empty'
 		if not self.cond_not_empty:wait(self.mutex, timeout) then
+			print'remove: timeout'
 			self.mutex:unlock()
 			return false, 'timeout'
 		end
 	end
 	local was_full = queue_isfull(self)
+	print('remove: here', self.state:gettop(), index)
 	local val = self.state:get(index)
+	print'remove: here2'
 	self.state:remove(index)
 	local len = queue_length(self)
 	if was_full then
 		self.cond_not_full:broadcast()
 	end
 	self.mutex:unlock()
+	print'remove: unlocked'
 	return true, val, len
 end
 
@@ -301,9 +311,6 @@ function queue.decode(t)
 end
 
 thread.shared_object('queue', queue)
-
---timers
-
 
 --threads --------------------------------------------------------------------
 
@@ -383,6 +390,41 @@ end
 
 thread.shared_object('thread', thread)
 
+--thread pools ---------------------------------------------------------------
+
+local pool = {}
+pool.__index = pool
+
+local function pool_worker(q)
+	while true do
+		print('waiting for task', q:length())
+		local _, task = q:shift()
+		print'got task'
+		task()
+	end
+end
+
+function thread.pool(n)
+	local t = {}
+	t.queue = thread.queue(1)
+	for i = 1, n do
+		t[i] = thread.new(pool_worker, t.queue)
+	end
+	return setmetatable(t, pool)
+end
+
+function pool:join()
+	for i = #self, 1, -1 do
+		self[i]:join()
+		self[i] = nil
+	end
+	self.queue:free()
+	self.queue = nil
+end
+
+function pool:push(task, timeout)
+	return self.queue:push(task, timeout)
+end
+
 
 return thread
-

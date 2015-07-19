@@ -33,6 +33,10 @@ local function test_events()
 	t2:join()
 end
 
+local function printtime(s, n, dt)
+	print(string.format('time to create %4d %-10s: %.2fs %6d %s/s', n, s, dt, n/dt, s))
+end
+
 local function test_pthread_creation()
 	local state = luastate.open()
 	state:openlibs()
@@ -49,9 +53,9 @@ local function test_pthread_creation()
 		local thread = pthread.new(worker_cb_ptr)
 		thread:join()
 	end
-	local t1 = time.clock()
+	local dt = time.clock() - t0
 	state:close()
-	print(string.format('time to create %d pthreads: %dms', n, (t1 - t0) * 1000))
+	printtime('pthreads', n, dt)
 end
 
 local function test_luastate_creation()
@@ -65,8 +69,8 @@ local function test_luastate_creation()
 		state:call()
 		state:close()
 	end
-	local t1 = time.clock()
-	print(string.format('time to create %d states: %dms', n, (t1 - t0) * 1000))
+	local dt = time.clock() - t0
+	printtime('states', n, dt)
 end
 
 local function test_thread_creation()
@@ -75,8 +79,8 @@ local function test_thread_creation()
 	for i=1,n do
 		thread.new(function() end):join()
 	end
-	local t1 = time.clock()
-	print(string.format('time to create %d threads: %dms', n, (t1 - t0) * 1000))
+	local dt = time.clock() - t0
+	printtime('threads', n, dt)
 end
 
 --pn/pm/cn/cm: producer/consumer threads/messages
@@ -120,14 +124,27 @@ local function test_queue(qsize, pn, pm, cn, cm, msg)
 		pn, pm, cn, cm, qsize, (t1 - t0) * 1000))
 end
 
---test_events()
-test_pthread_creation()
-test_luastate_creation()
-test_thread_creation()
-test_queue(1000, 10,  1000, 10,  1000)
-test_queue(1000,  1, 10000,  1, 10000)
-test_queue(1000,  1, 10000, 10,  1000)
-test_queue(1000, 10,  1000,  1, 10000)
-test_queue(1,     1, 10000, 10,  1000)
-test_queue(1,    10,  1000,  1, 10000)
+local function test_pool()
+	--local q = thread.queue(1)
+	--q:push('hi')
+	--print(q:push('hello', time.time() + 1))
+	local pool = thread.pool(1)
+	for i=1,100 do
+		--print('pushing', i)
+		print('push result', pool:push(function() print'hello' end, time.time() + 1))
+	end
+	print'joining'
+	pool:join()
+end
 
+--test_events()
+--test_pthread_creation()
+--test_luastate_creation()
+--test_thread_creation()
+--test_queue(1000, 10,  1000, 10,  1000)
+--test_queue(1000,  1, 10000,  1, 10000)
+--test_queue(1000,  1, 10000, 10,  1000)
+--test_queue(1000, 10,  1000,  1, 10000)
+--test_queue(1,     1, 10000, 10,  1000)
+--test_queue(1,    10,  1000,  1, 10000)
+test_pool()
