@@ -306,6 +306,10 @@ thread.shared_object('queue', queue)
 
 function thread.init_state(state)
 	state:openlibs()
+	if package.loaded.bundle_loader then
+		local bundle_luastate = require'bundle_luastate'
+		bundle_luastate.init_bundle(state)
+	end
 end
 
 function thread.new(func, ...)
