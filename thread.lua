@@ -12,7 +12,6 @@ local addr = glue.addr
 local ptr = glue.ptr
 
 local M = {}
-local thread = {type = 'os_thread', debug_prefix = '!'}
 
 --shareable objects ----------------------------------------------------------
 
@@ -36,20 +35,20 @@ local function pointer_class(in_ctype, out_ctype)
 	return class
 end
 
-function thread.shared_object(name, class)
+function M.shared_object(name, class)
 	if typemap[name] then return end --ignore duplicate registrations
 	typemap[name] = class
 end
 
-function thread.shared_pointer(in_ctype, out_ctype)
-	thread.shared_object(in_ctype, pointer_class(in_ctype, out_ctype))
+function M.shared_pointer(in_ctype, out_ctype)
+	M.shared_object(in_ctype, pointer_class(in_ctype, out_ctype))
 end
 
-thread.shared_pointer'lua_State*'
-thread.shared_pointer('pthread_t', 'pthread_t*')
-thread.shared_pointer('pthread_mutex_t', 'pthread_mutex_t*')
-thread.shared_pointer('pthread_rwlock_t', 'pthread_rwlock_t*')
-thread.shared_pointer('pthread_cond_t', 'pthread_cond_t*')
+M.shared_pointer'lua_State*'
+M.shared_pointer('pthread_t', 'pthread_t*')
+M.shared_pointer('pthread_mutex_t', 'pthread_mutex_t*')
+M.shared_pointer('pthread_rwlock_t', 'pthread_rwlock_t*')
+M.shared_pointer('pthread_cond_t', 'pthread_cond_t*')
 
 --identify a shareable object and encode it.
 local function encode_shareable(x)
@@ -68,7 +67,7 @@ local function decode_shareable(t)
 end
 
 --encode all shareable objects in a packed list of args
-function thread._encode_args(t)
+function M._encode_args(t)
 	t.shared = {} --{i1,...}
 	for i=1,t.n do
 		local e = encode_shareable(t[i])
@@ -83,7 +82,7 @@ function thread._encode_args(t)
 end
 
 --decode all encoded shareable objects in a packed list of args
-function thread._decode_args(t)
+function M._decode_args(t)
 	for _,i in ipairs(t.shared) do
 		t[i] = decode_shareable(t[i])
 	end
@@ -100,7 +99,7 @@ typedef struct {
 } thread_event_t;
 ]]
 
-function thread.event(set)
+function M.event(set)
 	local e = ffi.new'thread_event_t'
 	pthread.mutex(nil, e.mutex)
 	pthread.cond(nil, e.cond)
@@ -148,14 +147,14 @@ end
 
 ffi.metatype('thread_event_t', {__index = event})
 
-thread.shared_pointer('thread_event_t', 'thread_event_t*')
+M.shared_pointer('thread_event_t', 'thread_event_t*')
 
 --queues ---------------------------------------------------------------------
 
 local queue = {}
 queue.__index = queue
 
-function thread.queue(maxlen)
+function M.queue(maxlen)
 	assert(not maxlen or (math.floor(maxlen) == maxlen and maxlen >= 1),
 		'invalid queue max. length')
 	local state = luastate.open() --values will be kept on the state's stack
@@ -300,11 +299,11 @@ function queue.decode(t)
 	}, queue)
 end
 
-thread.shared_object('queue', queue)
+M.shared_object('queue', queue)
 
 --threads --------------------------------------------------------------------
 
-function thread.init_state(state)
+function M.init_state(state)
 	state:openlibs()
 	state:push{[0] = arg[0]} --used by some modules to get the exe dir
 	state:setglobal'arg'
@@ -314,9 +313,12 @@ function thread.init_state(state)
 	end
 end
 
-function thread.new(func, ...)
+local thread = {type = 'os_thread', debug_prefix = '!'}
+thread.__index = thread
+
+function M.new(func, ...)
 	local state = luastate.open()
-	thread.init_state(state)
+	M.init_state(state)
 	state:push(function(func, args)
 
 	   local ffi = require'ffi'
@@ -341,7 +343,7 @@ function thread.new(func, ...)
 	   return addr(worker_cb)
 	end)
 	local args = glue.pack(...)
-	local encoded_args = thread._encode_args(args)
+	local encoded_args = M._encode_args(args)
 	local worker_cb_ptr = ptr(state:call(func, encoded_args))
 	local pthread = pthread.new(worker_cb_ptr)
 
@@ -351,8 +353,6 @@ function thread.new(func, ...)
 			args = args, --keep args to avoid shareables from being collected
 		}, thread)
 end
-
-thread.__index = thread
 
 function thread:join()
 	self.pthread:join()
@@ -365,7 +365,7 @@ function thread:join()
 	if retvals.err then
 		error(retvals.err, 2)
 	end
-	return glue.unpack(thread._decode_args(retvals))
+	return glue.unpack(M._decode_args(retvals))
 end
 
 --threads / shareable interface
@@ -381,14 +381,14 @@ function thread:encode()
 	}
 end
 
-function thread.decode(t)
+function M.decode(t)
 	return setmetatable({
 		pthread = ptr('pthread_t*', t.thread_addr),
 		state   = ptr('lua_State*', t.state_addr),
 	}, thread)
 end
 
-thread.shared_object('thread', thread)
+M.shared_object('thread', thread)
 
 --thread pools ---------------------------------------------------------------
 
@@ -404,11 +404,11 @@ local function pool_worker(q)
 	end
 end
 
-function thread.pool(n)
+function M.pool(n)
 	local t = {}
-	t.queue = thread.queue(1)
+	t.queue = M.queue(1)
 	for i = 1, n do
-		t[i] = thread.new(pool_worker, t.queue)
+		t[i] = M.new(pool_worker, t.queue)
 	end
 	return setmetatable(t, pool)
 end
@@ -427,4 +427,4 @@ function pool:push(task, timeout)
 end
 
 
-return thread
+return M
