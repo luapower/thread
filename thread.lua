@@ -11,7 +11,8 @@ local ffi = require'ffi'
 local addr = glue.addr
 local ptr = glue.ptr
 
-local thread = {}
+local M = {}
+local thread = {type = 'os_thread', debug_prefix = '!'}
 
 --shareable objects ----------------------------------------------------------
 
