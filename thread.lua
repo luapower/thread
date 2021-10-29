@@ -305,7 +305,7 @@ M.shared_object('queue', queue)
 
 function M.init_state(state)
 	state:openlibs()
-	state:push{[0] = arg[0]} --used by some modules to get the exe dir
+	state:push{[0] = arg[0]} --used to make `glue.bin`
 	state:setglobal'arg'
 	if package.loaded.bundle_loader then
 		local bundle_luastate = require'bundle_luastate'
